@@ -59,8 +59,8 @@ class ScreamerResource:
                 md5 = webm["md5"]
                 url = webm["url"]
                 webm_response = None
-
                 webm_redis_info = get_cache(md5)  # clean_md5, delayed or None
+                
                 if isinstance(webm_redis_info, dict):
                     webm_redis_info['md5'] = md5
                     webm_response = webm_redis_info

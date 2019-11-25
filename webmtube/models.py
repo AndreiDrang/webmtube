@@ -1,15 +1,31 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Float, ForeignKey, ForeignKeyConstraint, \
-    CheckConstraint
+import logging
+from contextlib import contextmanager
+
+from sqlalchemy import (
+    create_engine,
+    Column,
+    Integer,
+    String,
+    DateTime,
+    Float,
+    ForeignKey,
+    ForeignKeyConstraint,
+    CheckConstraint,
+)
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.sql import func
 
+from webmtube import config
+
+
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
 
 class WEBM(Base):
-    __tablename__ = 'WEBM'
+    __tablename__ = "WEBM"
     # __table_args__ = (CheckConstraint(func.length('md5')==32),)
     id = Column(String(32), primary_key=True)
     time_created = Column(DateTime(), server_default=func.now())
@@ -18,33 +34,62 @@ class WEBM(Base):
     likes = Column(Integer(), default=0)
     dislikes = Column(Integer(), default=0)
 
-    webms = relationship('DirtyWEBM', cascade='delete')
+    webms = relationship("DirtyWEBM", cascade="delete")
 
-    CheckConstraint('views >= 0', name='views_positive')
-    CheckConstraint('likes >= 0', name='likes_positive')
-    CheckConstraint('dislikes >= 0', name='dislikes_positive')
+    CheckConstraint("views >= 0", name="views_positive")
+    CheckConstraint("likes >= 0", name="likes_positive")
+    CheckConstraint("dislikes >= 0", name="dislikes_positive")
+
     # TODO: Define to_dictionary for JSON serialization
     def to_dict(self):
-        return {'id': self.id, 'time_created': str(self.time_created),
-                'screamer_chance': self.screamer_chance, 'views': self.views, 'likes': self.likes,
-                'dislikes': self.dislikes}
+        return {
+            "id": self.id,
+            "time_created": str(self.time_created),
+            "screamer_chance": self.screamer_chance,
+            "views": self.views,
+            "likes": self.likes,
+            "dislikes": self.dislikes,
+        }
+
 
     def __init__(self, id_, screamer_chance=None):
         self.id = id_
         self.screamer_chance = screamer_chance
 
+
     def __repr__(self):
-        return "<WEBM(id={}, time_created={}, screamer_chance={}, views={}, likes={}, dislikes={})>".format(self.id,
-                                                                                                            self.time_created,
-                                                                                                            self.screamer_chance,
-                                                                                                            self.views,
-                                                                                                            self.likes,
-                                                                                                            self.dislikes)
+        return "<WEBM(id={}, time_created={}, screamer_chance={}, views={}, likes={}, dislikes={})>".format(
+            self.id, self.time_created, self.screamer_chance, self.views, self.likes, self.dislikes
+        )
 
 
 class DirtyWEBM(Base):
-    __tablename__ = 'DirtyWEBM'
+    __tablename__ = "DirtyWEBM"
     md5 = Column(String(32), primary_key=True)
-    webm_id = Column(String(32), ForeignKey('WEBM.id', ), nullable=False)
+    webm_id = Column(String(32), ForeignKey("WEBM.id"), nullable=False)
     webm = relationship(WEBM)
-    ForeignKeyConstraint(['webm_id'], ['WEBM.id'])
+    ForeignKeyConstraint(["webm_id"], ["WEBM.id"])
+
+
+logger.debug('DB init process started')
+# Init DB
+engine = create_engine(config.DB_ENGINE)
+Base.metadata.create_all(engine)
+Session = sessionmaker(bind=engine)
+
+logger.debug('DB successfully created')
+
+
+@contextmanager
+def session_scope():
+    """Provide a transactional scope around a series of operations."""
+    session = Session()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+

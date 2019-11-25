@@ -1,7 +1,5 @@
-from webmtube.models import WEBM, DirtyWEBM
+from webmtube.models import WEBM, DirtyWEBM, session_scope
 from webmtube.config import CACHING_REDIS as r
-
-from webmtube import Session
 
 
 def set_cache(webm_data):
@@ -25,6 +23,9 @@ def set_dirty_cache(md5, id_):
 
 
 def set_cache_delayed(md5):
+    """
+    Add video MD5 to cache with prefix `dirtywebm:`
+    """
     # r.set('dirtywebm:' + md5, 'delayed')
     r.setex('dirtywebm:' + md5, 7200, 'delayed')  # 2 hours
 
@@ -54,19 +55,15 @@ def pop_webm_from_redis_list():
     return r.lpop('webmlist')
 
 
-def save_webm_to_db(id_, session):
-    """
-    Note that it does not commit to session
-    """
+def save_webm_to_db(id_):
     r_type = r.type('cleanwebm:' + id_)
     try:
         if r_type == 'hash':
             data = r.hgetall('cleanwebm:' + id_)
-            webm = session.query(WEBM).get(id_)
+            webm = WEBM.query.get(id_)
             webm.views = data['views']
             webm.likes = data['likes']
             webm.dislikes = data['dislikes']
-            session.commit()  # TODO make bulk
         else:
             print('Not hash')
     except:
@@ -89,11 +86,10 @@ def get_clean_cache(id_):
         # TODO: Convert from strings types to floats and ints
         return cache
     else:
-        #print("Data from DB")
-        session = Session()
-        webm_data = session.query(WEBM).get(id_)  # Assuming it will be there anyway
-        set_cache(webm_data.to_dict())
-        return webm_data.to_dict()
+        with session_scope() as session:
+            webm_data = session.query(WEBM).get(id_)  # Assuming it will be there anyway
+            set_cache(webm_data.to_dict())
+            return webm_data.to_dict()
 
 
 def get_dirty_cache(md5):
@@ -111,20 +107,22 @@ def get_cache(dirty_md5):
     :return:  dict with data from cache, "delayed" message or None
     """
     id_ = get_dirty_cache(dirty_md5)
-    #print("Clean cache:", id_)
+    print("Clean cache:", id_)
+
     if id_ == "delayed":
         return id_
     elif id_ is None:
-        session = Session()
-        dirty_data = session.query(DirtyWEBM).get(dirty_md5)
-        # found id_
-        if dirty_data:
-            id_ = dirty_data.webm_id
-            set_dirty_cache(dirty_md5, id_)
-            return get_clean_cache(id_)
-        # no data in dirty cache - haven't analyzed
-        else:
-            return
+        with session_scope() as session:
+            dirty_data = session.query(DirtyWEBM).get(dirty_md5)
+            print(dirty_data)
+            # found id_
+            if dirty_data:
+                id_ = dirty_data.webm_id
+                set_dirty_cache(dirty_md5, id_)
+                return get_clean_cache(id_)
+            # no data in dirty cache - haven't analyzed
+            else:
+                return
     else:
         return get_clean_cache(id_)
 
